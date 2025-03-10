@@ -1,0 +1,10 @@
+feb 26 08:38:38 gauss vsce-sign[41932]: Primary signature type:  repository primary signature
+feb 26 08:38:38 gauss vsce-sign[41932]: Primary signature status:  OK
+feb 26 08:38:38 gauss vsce-sign[41932]: Timestamp signature status:  OK
+feb 26 08:38:38 gauss vsce-sign[41932]: Exit code:  Success
+feb 26 08:46:37 gauss sshd[41436]: Received disconnect from 10.8.250.83 port 60546:11: disconnected by user
+feb 26 08:46:37 gauss sshd[41436]: Disconnected from user anastasija 10.8.250.83 port 60546
+feb 26 08:46:40 gauss sshd[41384]: Received disconnect from 10.8.250.83 port 60509:11: disconnected by user
+feb 26 08:46:40 gauss sshd[41384]: Disconnected from user anastasija 10.8.250.83 port 60509
+feb 26 11:14:00 gauss snapd-desktop-i[2281]: Detected new session 191 at /org/freedesktop/login1/session/_3191
+feb 26 11:14:13 gauss snapd-desktop-i[2281]: Detected new session 192 at /org/freedesktop/login1/session/_3192

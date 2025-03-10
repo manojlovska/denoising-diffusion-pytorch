@@ -6,6 +6,8 @@ from functools import partial
 from collections import namedtuple
 from multiprocessing import cpu_count
 
+import os
+import wandb
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
@@ -26,7 +28,8 @@ from PIL import Image
 from tqdm.auto import tqdm
 from ema_pytorch import EMA
 
-from accelerate import Accelerator
+from accelerate import Accelerator, InitProcessGroupKwargs
+from datetime import timedelta
 
 from denoising_diffusion_pytorch.attend import Attend
 
@@ -863,7 +866,8 @@ class Dataset(Dataset):
             T.Resize(image_size),
             T.RandomHorizontalFlip() if augment_horizontal_flip else nn.Identity(),
             T.CenterCrop(image_size),
-            T.ToTensor()
+            T.ToTensor(),
+            T.Normalize(mean=[0], std=[1])
         ])
 
     def __len__(self):
@@ -890,7 +894,7 @@ class Trainer:
         ema_update_every = 10,
         ema_decay = 0.995,
         adam_betas = (0.9, 0.99),
-        save_and_sample_every = 1000,
+        save_and_sample_every = 2500,
         num_samples = 25,
         results_folder = './results',
         amp = False,
@@ -901,16 +905,38 @@ class Trainer:
         inception_block_idx = 2048,
         max_grad_norm = 1.,
         num_fid_samples = 50000,
-        save_best_and_latest_only = False
+        save_best_and_latest_only = False,
+        log_wandb=True
     ):
         super().__init__()
+
 
         # accelerator
 
         self.accelerator = Accelerator(
             split_batches = split_batches,
-            mixed_precision = mixed_precision_type if amp else 'no'
+            mixed_precision = mixed_precision_type if amp else 'no',
+            kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(seconds=7200))]
         )
+
+        # WANDB
+        if log_wandb:
+            if self.accelerator.is_main_process:
+                project_name = os.path.split(results_folder)[-1]
+                self.wandb_logger = wandb.init(
+                    project=project_name
+                )
+
+                # Save filename
+                self.results_folder = os.path.join(results_folder, self.wandb_logger.name)
+                os.makedirs(self.results_folder, exist_ok=True)
+
+            # logger.info("Training start ...")
+            # logger.info(f"Saving checkpoints into {os.path.join(self.filename, 'checkpoints')}")
+        else:
+            self.results_folder = Path(results_folder)
+            self.results_folder.mkdir(exist_ok = True)
+
 
         # model
 
@@ -944,7 +970,7 @@ class Trainer:
 
         assert len(self.ds) >= 100, 'you should have at least 100 images in your folder. at least 10k images recommended'
 
-        dl = DataLoader(self.ds, batch_size = train_batch_size, shuffle = True, pin_memory = True, num_workers = cpu_count())
+        dl = DataLoader(self.ds, batch_size = train_batch_size, shuffle = True, pin_memory = True, num_workers = 0)
 
         dl = self.accelerator.prepare(dl)
         self.dl = cycle(dl)
@@ -959,8 +985,8 @@ class Trainer:
             self.ema = EMA(diffusion_model, beta = ema_decay, update_every = ema_update_every)
             self.ema.to(self.device)
 
-        self.results_folder = Path(results_folder)
-        self.results_folder.mkdir(exist_ok = True)
+        # self.results_folder = Path(results_folder)
+        # self.results_folder.mkdir(exist_ok = True)
 
         # step counter state
 
@@ -1103,4 +1129,94 @@ class Trainer:
 
                 pbar.update(1)
 
+        accelerator.print('training complete')
+    
+    def train_wandb(self):
+        accelerator = self.accelerator
+        device = accelerator.device
+
+        with tqdm(initial = self.step, total = self.train_num_steps, disable = not accelerator.is_main_process) as pbar:
+
+            while self.step < self.train_num_steps:
+                self.model.train()
+
+                total_loss = 0.
+
+                for _ in range(self.gradient_accumulate_every):
+                    data = next(self.dl).to(device)
+
+                    with self.accelerator.autocast():
+                        loss = self.model(data)
+                        loss = loss / self.gradient_accumulate_every
+                        total_loss += loss.item()
+
+                    self.accelerator.backward(loss)
+
+                pbar.set_description(f'loss: {total_loss:.4f}')
+
+                accelerator.wait_for_everyone()
+                accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+
+                self.opt.step()
+                self.opt.zero_grad()
+
+                # WANDB
+                if accelerator.is_main_process:
+                    self.wandb_logger.log(
+                        {
+                            "train/loss": total_loss,
+                            "train/step": self.step
+                        }
+                    )
+
+
+                accelerator.wait_for_everyone()
+
+                self.step += 1
+                if accelerator.is_main_process:
+                    self.ema.update()
+
+                    if self.step != 0 and divisible_by(self.step, self.save_and_sample_every):
+                        self.ema.ema_model.eval()
+
+                        with torch.inference_mode():
+                            milestone = self.step // self.save_and_sample_every
+                            batches = num_to_groups(self.num_samples, self.batch_size)
+                            all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n), batches))
+
+                        all_images = torch.cat(all_images_list, dim = 0)
+
+                        utils.save_image(all_images, os.path.join(self.results_folder, f'sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
+
+                        # LOG IMAGES TO WANDB
+                        if accelerator.is_main_process:
+                            self.wandb_logger.log({"sampled_images":     [wandb.Image(img.permute(1,2,0).squeeze().cpu().numpy()) for img in all_images]})
+
+                        accelerator.wait_for_everyone()
+                        # whether to calculate fid
+
+                        if self.calculate_fid:
+                            fid_score = self.fid_scorer.fid_score()
+                            accelerator.print(f'fid_score: {fid_score}')
+                            if accelerator.is_main_process:
+                                self.wandb_logger.log({
+                                    "train/fid_score": fid_score
+                                })
+
+                        if self.save_best_and_latest_only:
+                            if self.best_fid > fid_score:
+                                self.best_fid = fid_score
+                                self.save("best")
+                            self.save("latest")
+                        else:
+                            self.save(milestone)
+
+                accelerator.wait_for_everyone()
+
+                pbar.update(1)
+                torch.cuda.empty_cache()
+
+        accelerator.wait_for_everyone()
+        if accelerator.is_main_process:
+            self.wandb_logger.finish()
         accelerator.print('training complete')
