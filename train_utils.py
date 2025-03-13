@@ -22,13 +22,13 @@ from torch.utils.data import DataLoader
 
 from denoising_diffusion_pytorch import Unet, GaussianDiffusion, Trainer
 
-os.environ["NCCL_P2P_DISABLE"] = "1"
-os.environ["NCCL_IB_DISABLE"] = "1"
-os.environ["TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC"] = "7200"
+# os.environ["NCCL_P2P_DISABLE"] = "1"
+# os.environ["NCCL_IB_DISABLE"] = "1"
+# os.environ["TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC"] = "7200"
 
-print(f"NCCL_P2P_DISABLE {os.environ['NCCL_P2P_DISABLE']}")
-print(f"NCCL_IB_DISABLE {os.environ['NCCL_IB_DISABLE']}")
-print(f"TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC {os.environ['TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC']}")
+# print(f"NCCL_P2P_DISABLE {os.environ['NCCL_P2P_DISABLE']}")
+# print(f"NCCL_IB_DISABLE {os.environ['NCCL_IB_DISABLE']}")
+# print(f"TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC {os.environ['TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC']}")
 
 
 # # Initialize NVML (for NVIDIA GPUs)
@@ -63,10 +63,11 @@ print(f"TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC {os.environ['TORCH_NCCL_HEARTBEAT_TIMEO
 # threading.Thread(target=log_system_metrics, daemon=True).start()
 
 class Train:
-    def __init__(self, images_folder, results_folder, project_name):
+    def __init__(self, images_folder, results_folder, project_name, milestone=None):
         self.images_folder = images_folder
         self.results_folder = results_folder
         self.project_name = project_name
+        self.milestone = milestone
 
         super().__init__
 
@@ -96,19 +97,6 @@ class Train:
             sampling_timesteps = 250    # number of sampling timesteps (using ddim for faster inference [see citation for ddim paper])
         )
 
-        # # WANDB
-        # self.wandb_logger = wandb.init(
-        #     project=self.project_name
-        #     # reinit=False
-        # )
-
-        # # Save filename
-        # self.filename = os.path.join(self.results_folder, self.project_name, self.wandb_logger.name)
-        # os.makedirs(self.filename, exist_ok=True)
-
-        # logger.info("Training start ...")
-        # logger.info(f"Saving checkpoints into {os.path.join(self.filename, 'checkpoints')}")
-
         # Save folder
         self.filename = os.path.join(self.results_folder, self.project_name)
 
@@ -126,8 +114,12 @@ class Train:
             results_folder=self.filename,
             log_wandb=True,
             num_fid_samples=10000,
-            save_and_sample_every = 25000
+            save_and_sample_every = 25000,
+            milestone=self.milestone
         )
+
+        if self.milestone is not None:
+            self.trainer.load(self.milestone)
 
     def train_wandb(self):
         self.trainer.train_wandb()
