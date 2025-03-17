@@ -116,7 +116,7 @@ class Train:
         self.trainer = Trainer(
             self.diffusion,
             folder=self.images_folder,
-            train_batch_size = 32,
+            train_batch_size = 16,
             train_lr = 8e-5,
             train_num_steps = 100000,         # total training steps
             gradient_accumulate_every = 2,    # gradient accumulation steps

@@ -970,7 +970,7 @@ class Trainer:
 
         assert len(self.ds) >= 100, 'you should have at least 100 images in your folder. at least 10k images recommended'
 
-        dl = DataLoader(self.ds, batch_size = train_batch_size, shuffle = True, pin_memory = True, num_workers = 0)
+        dl = DataLoader(self.ds, batch_size = train_batch_size, shuffle = True, pin_memory = False, num_workers = 0)
 
         dl = self.accelerator.prepare(dl)
         self.dl = cycle(dl)
@@ -1214,7 +1214,6 @@ class Trainer:
                 accelerator.wait_for_everyone()
 
                 pbar.update(1)
-                torch.cuda.empty_cache()
 
         accelerator.wait_for_everyone()
         if accelerator.is_main_process:
