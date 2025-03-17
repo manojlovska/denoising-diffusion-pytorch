@@ -15,7 +15,7 @@ source /ceph/grid/home/am6417/miniconda3/etc/profile.d/conda.sh
 conda activate env_ddpm
 
 export NCCL_DEBUG=INFO
-export NCCL_P2P_DISABLE=1
+# export NCCL_P2P_DISABLE=1
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=18000
 
 echo $NCCL_P2P_DISABLE

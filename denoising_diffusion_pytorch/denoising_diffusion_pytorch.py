@@ -955,7 +955,7 @@ class Trainer:
                     runs = api.runs(path=f"annastasijamanojlovska/{project_name}")
                     rr = [r for r in runs]
                     print(rr)
-                    run = rr[-1]
+                    run = next(rr[i] for i in range(len(rr)) if rr[i].name.endswith("51"))
                     run_name = run.name
                     run_id = run.id
 
@@ -965,7 +965,7 @@ class Trainer:
                         name=run_name,
                         resume="allow"
                     )
-                    self.accelerator.init_trackers(project_name, init_kwargs={"wandb": {"name": run_name, "id": id}})
+                    self.accelerator.init_trackers(project_name, init_kwargs={"wandb": {"name": run_name, "id": run_id}})
 
                 else:
                     wandb.init(project=project_name)
