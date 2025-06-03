@@ -112,7 +112,7 @@ class Train:
             amp = True,                       # turn on mixed precision
             calculate_fid = True,              # whether to calculate fid during training
             results_folder=self.filename,
-            log_wandb=False,
+            log_wandb=True,
             num_fid_samples=10000,
             save_and_sample_every = 25000,
             milestone=self.milestone

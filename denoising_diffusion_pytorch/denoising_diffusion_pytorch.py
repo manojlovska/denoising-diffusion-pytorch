@@ -945,6 +945,7 @@ class Trainer:
         base_results_folder = results_folder
         # Define a file to share the results folder path
         folder_sharing_file = os.path.join(base_results_folder, "wandb_results_folder.txt")
+        self.accelerator.wait_for_everyone()
 
         # WANDB
         if log_wandb:
