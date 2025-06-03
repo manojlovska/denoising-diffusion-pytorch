@@ -1,9 +1,9 @@
 from train_utils import Train
 
 images_folder = "/home/anastasija/Datasets/FFHQ/images1024x1024" # "/ceph/grid/home/am6417/Datasets/FFHQ/images1024x1024" # 
-results_folder = "./results"
+results_folder = "./results/tests"
 project_name = "denoising-diffusion-pytorch"
-milestone = 4
+milestone = 12
 
 trainer = Train(images_folder=images_folder,
                 results_folder=results_folder,

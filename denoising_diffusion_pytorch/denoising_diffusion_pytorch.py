@@ -844,7 +844,7 @@ class GaussianDiffusion(Module):
     def forward(self, img, *args, **kwargs):
         b, c, h, w, device, img_size, = *img.shape, img.device, self.image_size
         assert h == img_size[0] and w == img_size[1], f'height and width of image must be {img_size}'
-        t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
+        t = torch.randint(0, self.num_timesteps, (b,), device=self.device).long()
 
         img = self.normalize(img)
         return self.p_losses(img, t, *args, **kwargs)
@@ -938,7 +938,7 @@ class Trainer:
             gradient_accumulation_steps=gradient_accumulate_every,
             kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True), InitProcessGroupKwargs(timeout=timedelta(seconds=18000))]
         )
-        # self.device = self.accelerator.device
+        # torch.cuda.set_device(self.accelerator.local_process_index)
 
         self.milestone = milestone
 
@@ -1399,7 +1399,7 @@ class Trainer:
 
                 # self.accelerator.wait_for_everyone()
                 with self.accelerator.accumulate(self.model):
-                    data = next(self.train_dl)
+                    data = next(self.train_dl).to(self.device)
 
                     with self.accelerator.autocast():
                         loss = self.model(data)
@@ -1418,12 +1418,12 @@ class Trainer:
 
                 # WANDB
                 
-                self.accelerator.log(
-                        {
-                            "train/loss": total_loss,
-                            "train/step": self.step
-                        }
-                    )
+                # self.accelerator.log(
+                #         {
+                #             "train/loss": total_loss,
+                #             "train/step": self.step
+                #         }
+                #     )
 
 
                 self.accelerator.wait_for_everyone()
@@ -1445,7 +1445,7 @@ class Trainer:
                         utils.save_image(all_images, os.path.join(self.results_folder, f'sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
 
                         # LOG IMAGES TO WANDB
-                        self.accelerator.log({"sampled_images":     [wandb.Image(img.permute(1,2,0).squeeze().cpu().numpy()) for img in all_images]})
+                        # self.accelerator.log({"sampled_images":     [wandb.Image(img.permute(1,2,0).squeeze().cpu().numpy()) for img in all_images]})
 
                         # self.accelerator.wait_for_everyone()
                         # whether to calculate fid
@@ -1453,9 +1453,9 @@ class Trainer:
                         if self.calculate_fid:
                             fid_score = self.fid_scorer.fid_score()
                             self.accelerator.print(f'fid_score: {fid_score}')
-                            self.accelerator.log({
-                                    "train/fid_score": fid_score
-                                })
+                            # self.accelerator.log({
+                            #         "train/fid_score": fid_score
+                            #     })
 
                         if self.save_best_and_latest_only:
                             if self.best_fid > fid_score:
