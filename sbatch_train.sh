@@ -5,7 +5,7 @@
 #SBATCH --mem=64G
 #SBATCH --time=7-00:00:00
 #SBATCH --partition=compute
-#SBATCH --job-name=ddpm-pytorch
+#SBATCH --job-name=ddpm-pytorch-celeba
 #SBATCH --output=/ceph/grid/home/am6417/Projects/DDPM/denoising-diffusion-pytorch/outputs/train_log_%j.log
 #SBATCH --export=WANDB_API_KEY
 #SBATCH --export=HTTPS_PROXY

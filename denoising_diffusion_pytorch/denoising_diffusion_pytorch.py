@@ -1389,89 +1389,182 @@ class Trainer:
     #     accelerator.print('training complete')
 ########################################################################################################
 
-    def train_wandb(self):
+    # def train_wandb(self):
 
-        with tqdm(initial = self.step, total = self.train_num_steps, disable = not self.accelerator.is_local_main_process) as pbar:
+    #     with tqdm(initial = self.step, total = self.train_num_steps, disable = not self.accelerator.is_local_main_process) as pbar:
+
+    #         while self.step < self.train_num_steps:
+    #             self.model.train()
+
+    #             total_loss = 0.
+
+    #             # self.accelerator.wait_for_everyone()
+    #             with self.accelerator.accumulate(self.model):
+    #                 data = next(self.train_dl).to(self.device)
+
+    #                 with self.accelerator.autocast():
+    #                     loss = self.model(data)
+    #                     # loss = loss / self.gradient_accumulate_every
+    #                     total_loss += loss.item()
+
+    #                 self.accelerator.backward(loss)
+
+    #             pbar.set_description(f'loss: {total_loss:.4f}')
+
+    #             self.accelerator.wait_for_everyone()
+    #             # self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+
+    #             self.opt.step()
+    #             self.opt.zero_grad()
+
+    #             # WANDB
+                
+    #             self.accelerator.log(
+    #                     {
+    #                         "train/loss": total_loss,
+    #                         "train/step": self.step
+    #                     }
+    #                 )
+
+
+    #             self.accelerator.wait_for_everyone()
+
+    #             self.step += 1
+    #             if self.accelerator.is_local_main_process:
+    #                 self.ema.update()
+
+    #                 if self.step != 0 and divisible_by(self.step, self.save_and_sample_every):
+    #                     self.ema.ema_model.eval()
+
+    #                     with torch.inference_mode():
+    #                         milestone = self.step // self.save_and_sample_every
+    #                         batches = num_to_groups(self.num_samples, self.batch_size)
+    #                         all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n), batches))
+
+    #                     all_images = torch.cat(all_images_list, dim = 0)
+
+    #                     utils.save_image(all_images, os.path.join(self.results_folder, f'sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
+
+    #                     # LOG IMAGES TO WANDB
+    #                     self.accelerator.log({"sampled_images":     [wandb.Image(img.permute(1,2,0).squeeze().cpu().numpy()) for img in all_images]})
+
+    #                     self.accelerator.wait_for_everyone()
+    #                     # whether to calculate fid
+
+    #                     if self.calculate_fid:
+    #                         fid_score = self.fid_scorer.fid_score()
+    #                         self.accelerator.print(f'fid_score: {fid_score}')
+    #                         self.accelerator.log({
+    #                                 "train/fid_score": fid_score
+    #                             })
+
+    #                     if self.save_best_and_latest_only:
+    #                         if self.best_fid > fid_score:
+    #                             self.best_fid = fid_score
+    #                             self.save("best")
+    #                         self.save("latest")
+    #                     else:
+    #                         self.save(milestone)
+
+    #             self.accelerator.wait_for_everyone()
+
+    #             pbar.update(1)
+    #             torch.cuda.empty_cache()
+
+    #     self.accelerator.wait_for_everyone()
+    #     if self.accelerator.is_local_main_process:
+    #         self.accelerator.end_training()
+    #     self.accelerator.print('training complete')
+
+    def train_wandb(self):
+        # tqdm only on main local process
+        with tqdm(initial=self.step,
+                total=self.train_num_steps,
+                disable=not self.accelerator.is_local_main_process) as pbar:
 
             while self.step < self.train_num_steps:
                 self.model.train()
+                total_loss = 0.0
 
-                total_loss = 0.
-
-                # self.accelerator.wait_for_everyone()
+                # gradient accumulation
                 with self.accelerator.accumulate(self.model):
-                    data = next(self.train_dl).to(self.device)
-
+                    batch = next(self.train_dl).to(self.device)
                     with self.accelerator.autocast():
-                        loss = self.model(data)
-                        # loss = loss / self.gradient_accumulate_every
-                        total_loss += loss.item()
+                        loss = self.model(batch)
+                        total_loss = loss.item()
 
+                    # this synchronizes gradients under the hood
                     self.accelerator.backward(loss)
 
-                pbar.set_description(f'loss: {total_loss:.4f}')
+                    # optimizer step + zero_grad also sync under the hood
+                    self.opt.step()
+                    self.opt.zero_grad()
 
-                self.accelerator.wait_for_everyone()
-                # self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-
-                self.opt.step()
-                self.opt.zero_grad()
-
-                # WANDB
-                
-                # self.accelerator.log(
-                #         {
-                #             "train/loss": total_loss,
-                #             "train/step": self.step
-                #         }
-                #     )
-
-
-                self.accelerator.wait_for_everyone()
-
+                # advance step counter
                 self.step += 1
+
+                # log scalar metrics (all ranks participate, but only main prints)
+                self.accelerator.log({
+                    "train/loss": total_loss,
+                    "train/step": self.step
+                })
+
+                # update EMA and sampling only on local main
                 if self.accelerator.is_local_main_process:
                     self.ema.update()
 
-                    if self.step != 0 and divisible_by(self.step, self.save_and_sample_every):
+                    # every N steps: sample, save, log images, compute FID, checkpoint
+                    if self.step % self.save_and_sample_every == 0:
+                        milestone = self.step // self.save_and_sample_every
+
+                        # generate samples
                         self.ema.ema_model.eval()
-
                         with torch.inference_mode():
-                            milestone = self.step // self.save_and_sample_every
                             batches = num_to_groups(self.num_samples, self.batch_size)
-                            all_images_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n), batches))
+                            all_imgs = torch.cat(
+                                [self.ema.ema_model.sample(batch_size=n) for n in batches],
+                                dim=0
+                            )
 
-                        all_images = torch.cat(all_images_list, dim = 0)
+                        # save grid to disk
+                        utils.save_image(
+                            all_imgs,
+                            os.path.join(self.results_folder, f"sample-{milestone}.png"),
+                            nrow=int(math.sqrt(self.num_samples))
+                        )
 
-                        utils.save_image(all_images, os.path.join(self.results_folder, f'sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
+                        # log to W&B
+                        self.accelerator.log({
+                            "sampled_images": [
+                                wandb.Image(img.permute(1, 2, 0).cpu().numpy())
+                                for img in all_imgs
+                            ]
+                        })
 
-                        # LOG IMAGES TO WANDB
-                        # self.accelerator.log({"sampled_images":     [wandb.Image(img.permute(1,2,0).squeeze().cpu().numpy()) for img in all_images]})
-
-                        # self.accelerator.wait_for_everyone()
-                        # whether to calculate fid
-
+                        # optional FID
                         if self.calculate_fid:
-                            fid_score = self.fid_scorer.fid_score()
-                            self.accelerator.print(f'fid_score: {fid_score}')
-                            # self.accelerator.log({
-                            #         "train/fid_score": fid_score
-                            #     })
+                            fid = self.fid_scorer.fid_score()
+                            self.accelerator.print(f"FID score: {fid:.4f}")
+                            self.accelerator.log({"train/fid_score": fid})
 
-                        if self.save_best_and_latest_only:
-                            if self.best_fid > fid_score:
-                                self.best_fid = fid_score
-                                self.save("best")
-                            self.save("latest")
-                        else:
-                            self.save(milestone)
+                            # checkpoint best/latest
+                            if self.save_best_and_latest_only:
+                                if fid < self.best_fid:
+                                    self.best_fid = fid
+                                    self.save("best")
+                                self.save("latest")
+                            else:
+                                self.save(f"step-{milestone}")
+                
+                # if you really need all ranks to rendezvous before next iteration, barrier here:
+                # self.accelerator.wait_for_everyone()
 
-                self.accelerator.wait_for_everyone()
-
+                pbar.set_description(f"loss: {total_loss:.4f}")
                 pbar.update(1)
                 torch.cuda.empty_cache()
 
+        # final barrier and cleanup
         self.accelerator.wait_for_everyone()
         if self.accelerator.is_local_main_process:
             self.accelerator.end_training()
-        self.accelerator.print('training complete')
+            self.accelerator.print("Training complete")
