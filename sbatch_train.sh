@@ -1,17 +1,17 @@
 #!/bin/bash
 #SBATCH --nodes=1
-#SBATCH --gpus-per-node=2
-#SBATCH --cpus-per-task=4
+#SBATCH --gpus-per-node=4
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
-#SBATCH --time=7-00:00:00
-#SBATCH --partition=compute
+#SBATCH --time=2-00:00:00
+#SBATCH --partition=gpu
 #SBATCH --job-name=ddpm-pytorch-celeba
-#SBATCH --output=/ceph/grid/home/am6417/Projects/DDPM/denoising-diffusion-pytorch/outputs/train_log_%j.log
+#SBATCH --output=/ceph/hpc/home/am6417/Projects/DDPM/denoising-diffusion-pytorch/outputs/train_log_%j.log
 #SBATCH --export=WANDB_API_KEY
 #SBATCH --export=HTTPS_PROXY
 #SBATCH --export=https_proxy
 
-source /ceph/grid/home/am6417/miniconda3/etc/profile.d/conda.sh
+source /ceph/hpc/home/am6417/anaconda3/etc/profile.d/conda.sh
 conda activate env_ddpm
 
 export NCCL_DEBUG=INFO
